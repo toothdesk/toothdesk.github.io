@@ -143,40 +143,70 @@
   }
 
   /* ---------- UI (shadow DOM, no conflicts) ---------- */
+  function shade(hex, pct) {
+    var n = hex.replace('#', '');
+    if (n.length === 3) n = n.split('').map(function (c) { return c + c; }).join('');
+    var num = parseInt(n, 16);
+    var r = (num >> 16) & 255, g = (num >> 8) & 255, b = num & 255;
+    var t = pct < 0 ? 0 : 255, p = Math.abs(pct) / 100;
+    r = Math.round((t - r) * p + r); g = Math.round((t - g) * p + g); b = Math.round((t - b) * p + b);
+    return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+  }
+  var cDark = shade(cfg.color, -20);
+  var cGrad = 'linear-gradient(135deg,' + cfg.color + ',' + cDark + ')';
+
   var host = document.createElement('div');
   host.id = 'dental-bot-root';
   document.body.appendChild(host);
   var shadow = host.attachShadow({ mode: 'open' });
 
   var css = [
-    '.db-fab{position:fixed;right:20px;bottom:20px;width:60px;height:60px;border-radius:50%;',
-    'background:' + cfg.color + ';color:#fff;border:0;cursor:pointer;font-size:28px;z-index:2147483647;',
-    'box-shadow:0 4px 14px rgba(0,0,0,.25)}',
-    '.db-panel{position:fixed;right:20px;bottom:92px;width:340px;max-width:calc(100vw - 40px);height:440px;',
-    'max-height:calc(100vh - 130px);background:#fff;border-radius:14px;z-index:2147483647;display:none;',
-    'flex-direction:column;overflow:hidden;box-shadow:0 10px 40px rgba(0,0,0,.25);font-family:system-ui,-apple-system,sans-serif}',
-    '.db-panel.open{display:flex}',
-    '.db-head{background:' + cfg.color + ';color:#fff;padding:12px 14px;font-size:15px;font-weight:600}',
-    '.db-head small{display:block;font-weight:400;font-size:12px;opacity:.9}',
-    '.db-msgs{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px;font-size:14px}',
-    '.db-b{background:#f1f5f9;border-radius:12px 12px 12px 3px;padding:8px 12px;max-width:85%;align-self:flex-start}',
-    '.db-u{background:' + cfg.color + ';color:#fff;border-radius:12px 12px 3px 12px;padding:8px 12px;max-width:85%;align-self:flex-end}',
-    '.db-in{display:flex;border-top:1px solid #e5e7eb}',
-    '.db-in input{flex:1;border:0;padding:12px;font-size:14px;outline:none}',
-    '.db-in button{border:0;background:' + cfg.color + ';color:#fff;padding:0 16px;cursor:pointer;font-size:14px}',
-    '.db-foot{font-size:10px;color:#9ca3af;padding:6px 12px;border-top:1px solid #f1f5f9}',
+    '.db-fab{position:fixed;right:20px;bottom:20px;width:62px;height:62px;border-radius:50%;',
+    'background:' + cGrad + ';color:#fff;border:0;cursor:pointer;font-size:28px;z-index:2147483647;',
+    'box-shadow:0 6px 20px rgba(0,0,0,.28);transition:transform .15s}',
+    '.db-fab:hover{transform:scale(1.07)}',
+    '.db-panel{position:fixed;right:20px;bottom:94px;width:360px;max-width:calc(100vw - 40px);height:480px;',
+    'max-height:calc(100vh - 140px);background:#f8fafc;border-radius:20px;z-index:2147483647;display:none;',
+    'flex-direction:column;overflow:hidden;box-shadow:0 16px 50px rgba(0,0,0,.28);',
+    'font-family:system-ui,-apple-system,"Segoe UI",sans-serif}',
+    '.db-panel.open{display:flex;animation:dbin .18s ease-out}',
+    '@keyframes dbin{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}',
+    '.db-head{background:' + cGrad + ';color:#fff;padding:14px;display:flex;align-items:center;gap:11px}',
+    '.db-ava{width:42px;height:42px;border-radius:50%;background:rgba(255,255,255,.22);flex:none;',
+    'display:flex;align-items:center;justify-content:center;font-size:22px}',
+    '.db-hinfo{line-height:1.3}',
+    '.db-hname{font-size:15px;font-weight:700}',
+    '.db-hsub{font-size:11.5px;opacity:.93;display:flex;align-items:center;gap:6px}',
+    '.db-dot{width:8px;height:8px;border-radius:50%;background:#4ade80;box-shadow:0 0 6px #4ade80}',
+    '.db-msgs{flex:1;overflow-y:auto;padding:14px 12px;display:flex;flex-direction:column;gap:8px;font-size:14px;line-height:1.45}',
+    '.db-b{background:#fff;border:1px solid #edf1f6;border-radius:16px 16px 16px 4px;padding:9px 13px;',
+    'max-width:85%;align-self:flex-start;box-shadow:0 1px 3px rgba(0,0,0,.06);white-space:pre-line}',
+    '.db-u{background:' + cGrad + ';color:#fff;border-radius:16px 16px 4px 16px;padding:9px 13px;',
+    'max-width:85%;align-self:flex-end;box-shadow:0 1px 4px rgba(0,0,0,.14);white-space:pre-line}',
+    '.db-in{display:flex;align-items:center;gap:8px;padding:10px 12px;background:#fff;border-top:1px solid #eef2f7}',
+    '.db-in input{flex:1;border:1.5px solid #e5e7eb;border-radius:24px;padding:10px 16px;font-size:14px;',
+    'outline:none;font-family:inherit;transition:border-color .15s;min-width:0}',
+    '.db-in input:focus{border-color:' + cfg.color + '}',
+    '.db-send{width:42px;height:42px;flex:none;border:0;border-radius:50%;cursor:pointer;color:#fff;font-size:16px;',
+    'background:' + cGrad + ';box-shadow:0 3px 10px rgba(0,0,0,.2);display:flex;align-items:center;justify-content:center;transition:transform .15s}',
+    '.db-send:hover{transform:scale(1.07)}',
+    '.db-foot{font-size:10px;color:#9ca3af;padding:7px 14px;border-top:1px solid #f1f5f9;background:#fff}',
     '.db-chips{display:flex;flex-wrap:wrap;gap:6px;align-self:flex-start;max-width:95%}',
-    '.db-chip{border:1px solid ' + cfg.color + ';color:' + cfg.color + ';background:#fff;border-radius:16px;',
-    'padding:6px 12px;font-size:12px;cursor:pointer;font-family:inherit}',
-    '.db-chip:hover{background:' + cfg.color + ';color:#fff}',
-    '.db-typing{background:#f1f5f9;border-radius:12px 12px 12px 3px;padding:8px 14px;max-width:85%;',
-    'align-self:flex-start;color:#9ca3af;letter-spacing:2px}',
+    '.db-chip{border:1.5px solid ' + cfg.color + ';color:' + cfg.color + ';background:#fff;border-radius:20px;',
+    'padding:7px 13px;font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .15s}',
+    '.db-chip:hover{background:' + cfg.color + ';color:#fff;box-shadow:0 2px 8px rgba(0,0,0,.15)}',
+    '.db-typing{background:#fff;border:1px solid #edf1f6;border-radius:16px 16px 16px 4px;padding:11px 15px;',
+    'align-self:flex-start;display:flex;gap:5px}',
+    '.db-typing i{width:7px;height:7px;border-radius:50%;background:#9ca3af;animation:dbblink 1.2s infinite}',
+    '.db-typing i:nth-child(2){animation-delay:.2s}',
+    '.db-typing i:nth-child(3){animation-delay:.4s}',
+    '@keyframes dbblink{0%,60%,100%{opacity:.25;transform:none}30%{opacity:1;transform:translateY(-3px)}}',
     '.db-fab.pulse{animation:dbpulse 2s infinite}',
-    '@keyframes dbpulse{0%{box-shadow:0 4px 14px rgba(0,0,0,.25)}',
-    '50%{box-shadow:0 4px 26px ' + cfg.color + '}100%{box-shadow:0 4px 14px rgba(0,0,0,.25)}}',
-    '.db-teaser{position:fixed;right:92px;bottom:36px;background:#fff;border-radius:12px;padding:8px 14px;',
-    'font-size:13px;z-index:2147483647;box-shadow:0 4px 14px rgba(0,0,0,.2);display:none;cursor:pointer;',
-    'font-family:system-ui,-apple-system,sans-serif;max-width:230px;color:#1f2937}'
+    '@keyframes dbpulse{0%{box-shadow:0 6px 20px rgba(0,0,0,.28)}',
+    '50%{box-shadow:0 6px 28px ' + cfg.color + '}100%{box-shadow:0 6px 20px rgba(0,0,0,.28)}}',
+    '.db-teaser{position:fixed;right:94px;bottom:38px;background:#fff;border-radius:14px 14px 4px 14px;padding:10px 15px;',
+    'font-size:13px;z-index:2147483647;box-shadow:0 6px 20px rgba(0,0,0,.18);display:none;cursor:pointer;',
+    'font-family:system-ui,-apple-system,sans-serif;max-width:230px;color:#1f2937;border:1px solid #eef2f7}'
   ].join('');
 
   shadow.innerHTML =
@@ -184,9 +214,13 @@
     '<button class="db-fab" aria-label="Chat with us">💬</button>' +
     '<div class="db-teaser">Questions about your smile? Chat with us 👋</div>' +
     '<div class="db-panel" role="dialog" aria-label="Chat">' +
-      '<div class="db-head">' + esc(cfg.clinicName) + '<small>' + esc(cfg.tagline) + '</small></div>' +
+      '<div class="db-head"><div class="db-ava">🦷</div><div class="db-hinfo">' +
+        '<div class="db-hname">' + esc(cfg.clinicName) + '</div>' +
+        '<div class="db-hsub"><span class="db-dot"></span>Online — replies instantly</div>' +
+      '</div></div>' +
       '<div class="db-msgs"></div>' +
-      '<div class="db-in"><input type="text" placeholder="Type your question…" aria-label="Type your question"/><button>Send</button></div>' +
+      '<div class="db-in"><input type="text" placeholder="Type your question…" aria-label="Type your question"/>' +
+      '<button class="db-send" aria-label="Send">➤</button></div>' +
       '<div class="db-foot">Automated assistant — not dental advice. Emergencies: call ' + esc(cfg.phone) + '.</div>' +
     '</div>';
 
@@ -238,7 +272,7 @@
   function botSay(text, withChips) {
     var typing = document.createElement('div');
     typing.className = 'db-typing';
-    typing.textContent = '…';
+    typing.innerHTML = '<i></i><i></i><i></i>';
     msgs.appendChild(typing);
     msgs.scrollTop = msgs.scrollHeight;
     setTimeout(function () {

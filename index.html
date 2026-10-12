@@ -3,25 +3,153 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ToothDesk — Chat widgets for dental clinics</title>
+<title>ToothDesk — Never miss another patient inquiry</title>
+<meta name="description" content="ToothDesk is a lightweight chat widget for dental clinics. Answers patient questions 24/7 and captures after-hours appointment requests. One line of code, $19 one-time.">
 <style>
-  body { font-family: system-ui, -apple-system, sans-serif; margin: 0; color: #1f2937; background: #f8fafc; }
-  .wrap { max-width: 640px; margin: 0 auto; padding: 64px 20px; text-align: center; }
-  h1 { font-size: 40px; margin-bottom: 8px; }
-  h1 span { color: #0d9488; }
-  p { font-size: 18px; color: #4b5563; line-height: 1.6; }
-  a.btn { display: inline-block; margin-top: 24px; background: #0d9488; color: #fff;
-          padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; }
-  .note { margin-top: 32px; font-size: 14px; color: #9ca3af; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #1f2937; background: #fff; line-height: 1.6; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 20px; }
+  nav { display: flex; justify-content: space-between; align-items: center; padding: 18px 0; }
+  .logo { font-size: 22px; font-weight: 800; }
+  .logo span { color: #0d9488; }
+  .btn { display: inline-block; background: #0d9488; color: #fff; padding: 12px 28px; border-radius: 10px;
+         text-decoration: none; font-weight: 700; transition: transform .15s, box-shadow .15s; }
+  .btn:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(13,148,136,.35); }
+  .btn-ghost { background: #fff; color: #0d9488; border: 2px solid #0d9488; }
+  .hero { text-align: center; padding: 72px 0 56px; background: linear-gradient(180deg, #f0fdfa, #fff); }
+  .badge { display: inline-block; background: #ccfbf1; color: #0f766e; font-size: 13px; font-weight: 700;
+           padding: 6px 16px; border-radius: 20px; margin-bottom: 20px; }
+  .hero h1 { font-size: 48px; line-height: 1.15; margin-bottom: 16px; letter-spacing: -1px; }
+  .hero h1 span { color: #0d9488; }
+  .hero p { font-size: 19px; color: #4b5563; max-width: 620px; margin: 0 auto 32px; }
+  .cta-row { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .micro { margin-top: 18px; font-size: 14px; color: #6b7280; }
+  section { padding: 64px 0; }
+  h2 { font-size: 32px; text-align: center; margin-bottom: 12px; letter-spacing: -.5px; }
+  .sub { text-align: center; color: #6b7280; max-width: 600px; margin: 0 auto 40px; font-size: 17px; }
+  .demo-frame { border: 1px solid #e5e7eb; border-radius: 16px; overflow: hidden;
+                box-shadow: 0 20px 60px rgba(0,0,0,.12); max-width: 920px; margin: 0 auto; }
+  .demo-frame iframe { width: 100%; height: 620px; border: 0; display: block; }
+  .demo-note { text-align: center; margin-top: 14px; font-size: 14px; color: #6b7280; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 20px; }
+  .card { border: 1px solid #e5e7eb; border-radius: 14px; padding: 26px 22px; background: #fff;
+          transition: transform .15s, box-shadow .15s; }
+  .card:hover { transform: translateY(-4px); box-shadow: 0 12px 30px rgba(0,0,0,.08); }
+  .card .ic { font-size: 32px; margin-bottom: 12px; }
+  .card h3 { font-size: 18px; margin-bottom: 8px; }
+  .card p { font-size: 15px; color: #4b5563; }
+  .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px; counter-reset: step; }
+  .step { background: #f0fdfa; border-radius: 14px; padding: 26px 22px; position: relative; }
+  .step .n { width: 36px; height: 36px; border-radius: 50%; background: #0d9488; color: #fff;
+             display: flex; align-items: center; justify-content: center; font-weight: 800; margin-bottom: 12px; }
+  .step h3 { font-size: 17px; margin-bottom: 6px; }
+  .step p { font-size: 15px; color: #4b5563; }
+  .pricing { display: flex; justify-content: center; }
+  .price-card { border: 2px solid #0d9488; border-radius: 18px; padding: 40px; max-width: 420px; width: 100%;
+                text-align: center; box-shadow: 0 16px 44px rgba(13,148,136,.15); }
+  .price-card .amt { font-size: 56px; font-weight: 800; color: #0d9488; }
+  .price-card .per { color: #6b7280; margin-bottom: 20px; }
+  .price-card ul { list-style: none; text-align: left; margin: 0 0 28px; }
+  .price-card li { padding: 8px 0; font-size: 15px; }
+  .price-card li::before { content: "✓ "; color: #0d9488; font-weight: 800; }
+  details { border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px 20px; margin-bottom: 12px;
+            max-width: 720px; margin-left: auto; margin-right: auto; }
+  summary { font-weight: 700; cursor: pointer; font-size: 16px; }
+  details p { margin-top: 10px; color: #4b5563; font-size: 15px; }
+  footer { border-top: 1px solid #e5e7eb; padding: 32px 0; text-align: center; color: #9ca3af; font-size: 14px; }
+  @media (max-width: 640px) { .hero h1 { font-size: 34px; } }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <h1>🦷 Tooth<span>Desk</span></h1>
-  <p>We build lightweight chat widgets for dental clinics — answering patient questions
-     around the clock and capturing after-hours appointment requests.</p>
-  <a class="btn" href="./widget/demo/">See a live demo</a>
-  <p class="note">One line of code. $19 one-time. No subscription.</p>
+
+<nav class="wrap">
+  <div class="logo">🦷 Tooth<span>Desk</span></div>
+  <a class="btn" href="#demo">Live demo</a>
+</nav>
+
+<div class="hero">
+  <div class="wrap">
+    <div class="badge">BUILT FOR DENTAL CLINICS</div>
+    <h1>Never miss another <span>patient inquiry</span>.</h1>
+    <p>ToothDesk is a lightweight chat widget for your clinic's website. It answers patient questions around the clock and captures after-hours appointment requests — while you focus on teeth.</p>
+    <div class="cta-row">
+      <a class="btn" href="#demo">Try the live demo</a>
+      <a class="btn btn-ghost" href="#pricing">Get it for $19</a>
+    </div>
+    <p class="micro">One line of code &nbsp;·&nbsp; $19 one-time &nbsp;·&nbsp; No subscription</p>
+  </div>
 </div>
+
+<section id="demo">
+  <div class="wrap">
+    <h2>See it in action</h2>
+    <p class="sub">This is a real ToothDesk widget running on a demo clinic page. Open the chat bubble, say "hi", ask about hours — or type "call me".</p>
+    <div class="demo-frame">
+      <iframe src="./widget/demo/" title="ToothDesk live demo" loading="lazy"></iframe>
+    </div>
+    <p class="demo-note">Prefer full screen? <a href="./widget/demo/">Open the demo page directly →</a></p>
+  </div>
+</section>
+
+<section style="background:#f8fafc">
+  <div class="wrap">
+    <h2>What it does for your clinic</h2>
+    <p class="sub">A friendly front-desk assistant that lives on your website.</p>
+    <div class="grid">
+      <div class="card"><div class="ic">🕐</div><h3>Answers 24/7</h3><p>Hours, services, insurance, directions — answered instantly, even at 2am.</p></div>
+      <div class="card"><div class="ic">📞</div><h3>Captures leads</h3><p>After-hours visitors leave their name and number; your team follows up in the morning.</p></div>
+      <div class="card"><div class="ic">⚡</div><h3>One-line install</h3><p>Paste a single script tag into your site. We build and configure everything for you.</p></div>
+      <div class="card"><div class="ic">🚨</div><h3>Emergency smart</h3><p>Tooth pain? The widget immediately directs patients to call you — no chat runaround.</p></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>How it works</h2>
+    <p class="sub">From "yes" to live on your site in a day.</p>
+    <div class="steps">
+      <div class="step"><div class="n">1</div><h3>You say yes</h3><p>Reply to our email. Tell us your clinic's phone, hours, and services.</p></div>
+      <div class="step"><div class="n">2</div><h3>We build your widget</h3><p>We configure everything and host it for you. Nothing for you to install or maintain.</p></div>
+      <div class="step"><div class="n">3</div><h3>Paste one line</h3><p>Add the script tag to your website. The chat bubble appears — done.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="pricing" style="background:#f8fafc">
+  <div class="wrap">
+    <h2>Simple pricing</h2>
+    <p class="sub">One price. Yours forever.</p>
+    <div class="pricing">
+      <div class="price-card">
+        <div class="amt">$19</div>
+        <div class="per">one-time payment · no subscription</div>
+        <ul>
+          <li>Custom widget with your clinic's info</li>
+          <li>We host it — zero maintenance for you</li>
+          <li>Lead alerts straight to your email</li>
+          <li>Free updates if your hours change</li>
+        </ul>
+        <a class="btn" href="#demo">Try the demo first</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Questions, answered</h2>
+    <p class="sub">&nbsp;</p>
+    <details><summary>Do I need any technical skills?</summary><p>No. We build and host the widget for you. You paste one line of code into your website — and we'll walk you through it if needed.</p></details>
+    <details><summary>Where do the captured leads go?</summary><p>Straight to your email inbox: the visitor's name and phone number, the moment they submit it.</p></details>
+    <details><summary>What if my hours or phone number change?</summary><p>Just tell us — we update your widget for free.</p></details>
+    <details><summary>What questions can it answer?</summary><p>Hours, location, services, pricing guidance, insurance, booking, and emergencies. Anything else, it offers to have your team call the visitor back.</p></details>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">© 2026 ToothDesk · Chat widgets for dental clinics</div>
+</footer>
+
 </body>
 </html>
