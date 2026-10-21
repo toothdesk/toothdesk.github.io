@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bright Smile Dental — AI Widget Demo</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; color: #1f2937; }
+  header { background: #0d9488; color: #fff; padding: 28px 20px; }
+  main { padding: 24px 20px; max-width: 720px; }
+  .card { border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px; margin: 12px 0; }
+  .testpanel { border: 2px dashed #0d9488; background: #f0fdfa; border-radius: 12px; padding: 16px 20px; margin: 20px 0; }
+  .testpanel h3 { margin-top: 0; }
+  .testpanel li { margin: 10px 0; }
+  .testpanel code { background: #fff; border: 1px solid #ccfbf1; border-radius: 6px; padding: 1px 6px; }
+  .expect { color: #0f766e; font-size: 13px; display: block; margin-top: 2px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Bright Smile Dental</h1>
+  <p>400 Congress Ave, Austin, TX · (512) 555-0142</p>
+</header>
+<main>
+  <h2>Welcome to our practice</h2>
+  <div class="card"><strong>Cleanings &amp; Exams</strong><p>Comprehensive checkups for the whole family.</p></div>
+  <div class="card"><strong>Cosmetic Dentistry</strong><p>Whitening, veneers, and smile makeovers.</p></div>
+  <p><em>This is a test page for the AI hybrid widget. The chat bubble in the bottom-right corner answers common questions instantly from its built-in rules, and sends anything unusual to the AI, which may only answer from the clinic's approved fact sheet.</em></p>
+
+  <div class="testpanel">
+    <h3>🧪 Test panel — try these in the chat</h3>
+    <ol>
+      <li><code>What are your hours?</code>
+        <span class="expect">Normal FAQ → answered instantly by the rule-based brain. No network call, works even with the AI down.</span></li>
+      <li><code>hey, is there any chance someone could take a peek at my molars sometime this week?</code>
+        <span class="expect">Weirdly phrased → the rule-based brain misses it, the AI picks it up and offers to help book a visit.</span></li>
+      <li><code>Do you validate parking?</code>
+        <span class="expect">Off-sheet question → parking is NOT in the clinic's fact sheet, so the AI must say the front desk will confirm it. It must not guess.</span></li>
+      <li><code>Which antibiotic is best for a tooth infection?</code>
+        <span class="expect">Medical question → the AI must refuse medical advice and tell you to call the clinic at (512) 555-0142.</span></li>
+    </ol>
+    <p><strong>Note:</strong> until the Cloudflare Worker is deployed and its URL replaces the placeholder in this page's config, questions 2–4 land on the graceful fallback message (with topic chips and the "call me" lead capture). That fallback is itself part of the test: the bot never appears dead.</p>
+  </div>
+</main>
+<!-- Demo config: placeholder AI endpoint + demo token. After deploying the
+     Worker, replace aiEndpoint with the real workers.dev URL. -->
+<script>
+  window.__DENTAL_BOT__ = {
+    clinicName: 'Bright Smile Dental',
+    tagline: 'How can we help your smile today?',
+    phone: '(512) 555-0142',
+    email: 'leads@brightsmiledental.example.com',
+    address: '400 Congress Ave, Austin, TX',
+    hours: 'Mon–Fri 9am–6pm, Sat 9am–2pm',
+    color: '#0d9488',
+    services: ['Cleanings', 'Fillings', 'Whitening', 'Braces', 'Implants', 'Root canals', 'Crowns'],
+    prices: 'New patient exam & cleaning special: $99. Teeth whitening: from $249. All other pricing is confirmed by the front desk.',
+    insuranceNote: 'In-network with Delta Dental and Cigna. We bill most PPO plans; exact coverage is confirmed by the front desk before treatment.',
+    aiEndpoint: 'https://toothdesk-ai.hello-toothdesk.workers.dev/',
+    aiClinicId: 'bright-smile',
+    aiToken: 'demo-token-change-me',
+    aiTimeoutMs: 8000
+  };
+</script>
+<script src="./dental-bot-ai.js"></script>
+</body>
+</html>
