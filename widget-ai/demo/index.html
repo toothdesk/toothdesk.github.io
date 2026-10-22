@@ -52,6 +52,7 @@
     email: 'leads@brightsmiledental.example.com',
     address: '400 Congress Ave, Austin, TX',
     hours: 'Mon–Fri 9am–6pm, Sat 9am–2pm',
+    hoursStructured: { mon: [540, 1080], tue: [540, 1080], wed: [540, 1080], thu: [540, 1080], fri: [540, 1080], sat: [540, 840], sun: null },
     color: '#0d9488',
     services: ['Cleanings', 'Fillings', 'Whitening', 'Braces', 'Implants', 'Root canals', 'Crowns'],
     prices: 'New patient exam & cleaning special: $99. Teeth whitening: from $249. All other pricing is confirmed by the front desk.',
@@ -59,7 +60,7 @@
     aiEndpoint: 'https://toothdesk-ai.hello-toothdesk.workers.dev/',
     aiClinicId: 'bright-smile',
     aiToken: 'demo-token-change-me',
-    aiTimeoutMs: 8000
+    aiTimeoutMs: 20000
   };
 </script>
 <script src="./dental-bot-ai.js"></script>
