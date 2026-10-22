@@ -75,7 +75,7 @@
       reply: function () { return 'Here is how to reach us:\n📞 ' + cfg.phone + '\n✉️ ' + cfg.email + '\n📍 ' + cfg.address + '\n🕐 ' + cfg.hours; } },
     { id: 'newpatient', keys: ['new patient', 'first visit', 'join'],
       reply: function () { return 'We love welcoming new patients! I can help you book your first visit right here — just tell me a day and time that suits you.'; } },
-    { id: 'services', keys: ['service', 'offer', 'treatment', 'do you do', 'cleaning', 'whiten', 'brace', 'implant', 'filling', 'crown', 'root canal', 'extraction', 'denture', 'veneer'],
+    { id: 'services', keys: ['service', 'offer', 'treatment', 'do you do', 'cleaning', 'whiten', 'whitening', 'brace', 'implant', 'filling', 'crown', 'root canal', 'extraction', 'denture', 'veneer'],
       reply: function () { return 'We offer: ' + cfg.services.join(', ') + '. Anything specific I can help with?'; } },
     { id: 'human', keys: ['human', 'person', 'real', 'staff', 'receptionist', 'phone number', 'telephone'],
       reply: function () { return 'Of course — you can reach our front desk at ' + cfg.phone + ' (' + cfg.hours + ').'; } },
@@ -97,6 +97,23 @@
       if (s > bestScore || (s === bestScore && s > 0 && INTENTS[i].id === 'emergency')) { bestScore = s; best = INTENTS[i]; }
     }
     return best;
+  }
+
+  /* Every intent that matches the text, ordered by where its first
+   * keyword appears in the message (multi-answer support, triage F). */
+  function intentHits(t, skipId) {
+    var hits = [];
+    for (var i = 0; i < INTENTS.length; i++) {
+      if (skipId && INTENTS[i].id === skipId) continue;
+      var bestIdx = -1;
+      for (var j = 0; j < INTENTS[i].res.length; j++) {
+        var idx = t.search(INTENTS[i].res[j]);
+        if (idx !== -1 && (bestIdx === -1 || idx < bestIdx)) bestIdx = idx;
+      }
+      if (bestIdx !== -1) hits.push({ idx: bestIdx, intent: INTENTS[i] });
+    }
+    hits.sort(function (a, b) { return a.idx - b.idx; });
+    return hits;
   }
 
   function greetingReply() {
@@ -125,9 +142,21 @@
       for (var ii = 0; ii < INTENTS.length; ii++) if (INTENTS[ii].id === 'identity') idn = INTENTS[ii];
       return { text: idn.reply(), id: 'identity', greeting: false };
     }
-    var best = scoreIntents(t.toLowerCase(), skipBooking ? 'booking' : null);
-    if (best) return { text: best.reply(), id: best.id, greeting: false };
-    return null;
+    /* Multi-intent (triage F): a message can ask several things at
+     * once ("what are your hours and where are you located, also
+     * book me..."). Answer up to 3 distinct intents, in the order
+     * they appear in the message, instead of only the single
+     * best-scoring one. A single hit behaves exactly as before. */
+    var hits = intentHits(t.toLowerCase(), skipBooking ? 'booking' : null);
+    if (!hits.length) return null;
+    if (hits.length === 1) return { text: hits[0].intent.reply(), id: hits[0].intent.id, greeting: false };
+    var top = hits.slice(0, 3);
+    return {
+      text: top.map(function (h) { return h.intent.reply(); }).join('\n'),
+      id: top[0].intent.id,
+      ids: top.map(function (h) { return h.intent.id; }),
+      greeting: false
+    };
   }
 
   /* ---------- AI layer ---------- */
@@ -216,7 +245,15 @@
    * confirms the summary. The submission goes to the clinic instantly
    * via the FormSubmit relay; the visitor is told the clinic will
    * confirm the slot by phone/text shortly. The bot never claims a
-   * slot is guaranteed or a calendar was updated. */
+   * slot is guaranteed or a calendar was updated.
+   *
+   * QUESTIONS NEVER MUTATE (retest triage): once a booking exists,
+   * a question ("How much does a root canal cost?") is answered,
+   * never applied as a change. Post-booking changes need explicit
+   * change language, an answer to the bot's own change prompt, or
+   * a "yes" to a staged change — and the reply names the delta
+   * ("Service: Cleanings -> Root canals"). A daypart ("Friday
+   * afternoon") is never treated as a clock time. */
   var booking = null;
   function freshBooking() {
     return {
@@ -225,7 +262,11 @@
       name: '', phone: '', service: '',
       dateISO: '', dateText: '', timeMin: null, timeText: '',
       note: '', ref: '', transcript: [],
-      lastAsked: null, suggestion: null
+      lastAsked: null, suggestion: null,
+      pendingChange: null,   // staged post-booking change awaiting a yes/no
+      pendingDaypart: null,  // post-booking change held for a clock time
+      awaitingChange: false, // bot just asked "what would you like to change?"
+      daypartNote: null      // 'morning'|'afternoon'|'evening' named, no clock time yet
     };
   }
   booking = freshBooking();
@@ -413,8 +454,62 @@
     var tm = parseTime(text, scan.correction); if (tm) scan.time = tm;
     var sv = scanService(text); if (sv) scan.service = sv;
     var nt = text.match(/\bnote[:\-]\s*(.+)/i); if (nt) scan.note = nt[1].trim().slice(0, 200);
+    /* A daypart ("Friday afternoon") with NO clock time in the same
+     * message: the visitor named a part of the day, not a time. It
+     * never counts as a time and never sets one silently (triage E). */
+    var dp = t.match(/\b(morning|afternoon|evening)\b/);
+    if (dp && !(tm && (tm.min !== undefined || tm.error))) scan.daypart = dp[1];
     scan.any = !!(scan.phone || scan.name || scan.date || scan.time || scan.service);
     return scan;
+  }
+
+  /* ----- question shield + change gate helpers (triage A/B) -----
+   * A message is a QUESTION when it asks rather than tells: it
+   * carries a '?', opens with an interrogative word, or asks about
+   * price. A question NEVER mutates the booking. A change applies
+   * only with explicit change language (correction words / change
+   * verbs), as an answer to the bot's own change prompt, or after
+   * the visitor confirms a staged change with "yes". */
+  function isQuestion(text) {
+    var t = String(text).trim().toLowerCase();
+    if (t.indexOf('?') !== -1) return true;
+    if (/^(how|what|when|where|who|why|do|does|did|is|are|was|were|can|could|will|would|should|may)\b/.test(t)) return true;
+    if (/\b(price|prices|cost|costs|how much)\b/.test(t)) return true;
+    return false;
+  }
+  function hasChangeLang(t, scan) {
+    return !!((scan && scan.correction) || /\b(change|move|reschedule|switch|update)\b/.test(t));
+  }
+  function isYesAnswer(text) { return /^\s*(yes|yeah|yep|yup|sure|ok|okay|please do|go ahead|apply|do it)\b/i.test(text); }
+  function isNoAnswer(text) { return /^\s*(no|nope|nah|cancel|never ?mind|keep|don'?t|do not)\b/i.test(text); }
+  /* "Field: old -> new" lines naming exactly what a change did (triage D). */
+  function deltaText(changed) {
+    return changed.map(function (c) { return c.field + ': ' + c.from + ' -> ' + c.to; }).join('\n');
+  }
+  function deltaFields(changed) {
+    return changed.map(function (c) { return c.field.toLowerCase(); }).join(', ');
+  }
+  /* The delta a scan WOULD produce against the current booking,
+   * computed without mutating anything (staging + reply wording). */
+  function previewDelta(scan) {
+    var d = [];
+    if (!scan) return d;
+    if (scan.name && scan.name !== booking.name) d.push({ field: 'Name', from: booking.name || '—', to: scan.name });
+    if (scan.phone && scan.phone !== booking.phone) d.push({ field: 'Phone', from: booking.phone || '—', to: scan.phone });
+    if (scan.service && scan.service !== booking.service) d.push({ field: 'Service', from: booking.service || '—', to: scan.service });
+    if (scan.date && !scan.date.error && scan.date.iso !== booking.dateISO) d.push({ field: 'Date', from: booking.dateText || '—', to: scan.date.text });
+    if (scan.time && !scan.time.error && scan.time.min !== booking.timeMin) d.push({ field: 'Time', from: booking.timeText || '—', to: scan.time.text });
+    return d;
+  }
+  /* Short target description of a staged change for the yes/no prompt. */
+  function stagedText(scan) {
+    var parts = [];
+    if (scan.service) parts.push('Service: ' + scan.service);
+    if (scan.date && !scan.date.error) parts.push('Date: ' + scan.date.text + (scan.daypart ? ' (' + scan.daypart + ' — time still to pick)' : ''));
+    if (scan.time && !scan.time.error) parts.push('Time: ' + scan.time.text);
+    if (scan.name) parts.push('Name: ' + scan.name);
+    if (scan.phone) parts.push('Phone: ' + scan.phone);
+    return parts.join(', ');
   }
 
   /* Validate + commit a scanned date/time against the structured hours.
@@ -460,6 +555,7 @@
       }
       booking.timeMin = scan.time.min;
       booking.timeText = scan.time.text;
+      booking.daypartNote = null; // a real clock time resolves any open daypart
     }
     if (scan.date || scan.time) booking.suggestion = null;
     return null;
@@ -469,7 +565,11 @@
   function askFor(field) {
     if (field === 'service') return 'What service would you like to book?';
     if (field === 'date') return 'What day works for you?';
-    if (field === 'time') return booking.dateText ? ('What time on ' + booking.dateText + '?') : 'What time works for you?';
+    if (field === 'time') {
+      if (booking.daypartNote && booking.dateISO) return 'What time on ' + DAY_NAMES[dateFromISO(booking.dateISO).getDay()] + ' ' + booking.daypartNote + ' works for you?';
+      if (booking.daypartNote) return 'What time in the ' + booking.daypartNote + ' works for you?';
+      return booking.dateText ? ('What time on ' + booking.dateText + '?') : 'What time works for you?';
+    }
     if (field === 'name') return 'What is your name?';
     if (field === 'phone') return booking.mode === 'callback' ? 'What phone number should we call?' : 'What phone number should the clinic use to confirm your booking?';
     return '';
@@ -617,42 +717,175 @@
     });
   }
 
+  /* Apply a scanned change set to the completed booking in place.
+   * Date/time go through applyDateTime (structured-hours validation);
+   * on rejection the pre-change date/time are restored and no other
+   * field is touched. Returns { rejection } or { changed, fields }. */
+  function applyScannedChange(scan) {
+    var delta = previewDelta(scan);
+    var snap = { dateISO: booking.dateISO, dateText: booking.dateText, timeMin: booking.timeMin, timeText: booking.timeText };
+    var rej = applyDateTime(scan);
+    if (rej) {
+      booking.dateISO = snap.dateISO; booking.dateText = snap.dateText;
+      booking.timeMin = snap.timeMin; booking.timeText = snap.timeText;
+      return { rejection: rej, changed: [], fields: [] };
+    }
+    if (scan.name) booking.name = scan.name;
+    if (scan.phone) booking.phone = scan.phone;
+    if (scan.service) booking.service = scan.service;
+    var fields = delta.map(function (c) { return c.field.toLowerCase(); });
+    if (scan.note) { booking.note = scan.note; fields.push('note'); }
+    return { rejection: null, changed: delta, fields: fields };
+  }
+  /* Apply the name/phone/service/note extras staged alongside a
+   * daypart hold; returns their delta entries. */
+  function applyStagedExtras(extra) {
+    if (!extra) return [];
+    var tmp = { name: extra.name, phone: extra.phone, service: extra.service, note: extra.note };
+    var d = previewDelta(tmp);
+    if (tmp.name) booking.name = tmp.name;
+    if (tmp.phone) booking.phone = tmp.phone;
+    if (tmp.service) booking.service = tmp.service;
+    if (tmp.note) booking.note = tmp.note;
+    return d;
+  }
+  /* The standard "change applied + sent" reply: names the delta
+   * (triage D), then the new one-line summary. Honest wording: the
+   * clinic confirms the change; a slot is never "guaranteed". */
+  function updatedChangeReply(changed) {
+    return 'Updated — I\'ve sent the change to ' + cfg.clinicName + ':\n' + deltaText(changed) + '\n' +
+      oneLineSummary() + ' (reference ' + booking.ref + '). They\'ll confirm the change by phone or text shortly.';
+  }
+  /* Begin a daypart change hold (triage E): the DATE part of the
+   * change is applied now, but nothing is submitted to the clinic
+   * until the visitor names a clock time (or explicitly keeps the
+   * old one). Other scanned fields ride along as staged extras. */
+  function startDaypartHold(scan, rawText) {
+    var prev = { dateISO: booking.dateISO, dateText: booking.dateText, timeMin: booking.timeMin, timeText: booking.timeText };
+    var res = applyScannedChange({ date: scan.date });
+    if (res.rejection) return 'Your booking (' + booking.ref + ') is unchanged. ' + res.rejection;
+    booking.pendingDaypart = {
+      daypart: scan.daypart,
+      prevDateISO: prev.dateISO, prevDateText: prev.dateText,
+      prevTimeMin: prev.timeMin, prevTimeText: prev.timeText,
+      extra: { name: scan.name || null, phone: scan.phone || null, service: scan.service || null, note: scan.note || null },
+      changed: res.changed
+    };
+    booking.transcript.push(rawText);
+    var wd = DAY_NAMES[dateFromISO(booking.dateISO).getDay()];
+    return 'I\'ve moved the day to ' + booking.dateText + ' — I haven\'t sent this change to the clinic yet. What time on ' + wd + ' ' + scan.daypart + ' works for you? Or say "keep the same time" to stay at ' + prev.timeText + '.';
+  }
+
   /* ----- the engine: returns a reply string, or null to fall through
    * to the FAQ brain / AI layer ----- */
   function bookingHandle(text) {
     var t = text.toLowerCase();
     var scan = scanFields(text);
 
-    /* Completed booking: changes + cancellations, never a restart. */
+    /* Completed booking: changes + cancellations, never a restart.
+     * Changes are GATED (triage A/B): a question never mutates the
+     * booking; a change applies only with explicit change language,
+     * as an answer to the bot's own change prompt (awaitingChange),
+     * or after the visitor confirms a staged change with "yes". */
     if (booking.state === 'done' && booking.ref) {
+      var changeLang = hasChangeLang(t, scan);
+      var question = isQuestion(text);
+
+      /* Cancellation first: it wins over any staged state. */
       if (/\bcancel\b/.test(t) && /\b(appointment|booking|visit|it|that)\b/.test(t)) {
         booking.transcript.push(text);
         submitBookingUpdate('CANCELLATION REQUEST', 'The visitor asked to cancel this booking.');
         booking.state = 'cancelled';
+        booking.pendingChange = null;
+        booking.pendingDaypart = null;
+        booking.awaitingChange = false;
         return 'I\'ve noted that and sent it to ' + cfg.clinicName + ' — they\'ll confirm the cancellation by phone or text shortly. Your reference is ' + booking.ref + '.';
       }
-      if (scan.any) {
-        var snap = { dateISO: booking.dateISO, dateText: booking.dateText, timeMin: booking.timeMin, timeText: booking.timeText };
-        var rejD = applyDateTime(scan);
-        if (rejD) {
-          booking.dateISO = snap.dateISO; booking.dateText = snap.dateText;
-          booking.timeMin = snap.timeMin; booking.timeText = snap.timeText;
-          return 'Your booking (' + booking.ref + ') is unchanged. ' + rejD;
-        }
-        var changedD = [];
-        if (scan.name && scan.name !== booking.name) { booking.name = scan.name; changedD.push('name'); }
-        if (scan.phone && scan.phone !== booking.phone) { booking.phone = scan.phone; changedD.push('phone'); }
-        if (scan.service && scan.service !== booking.service) { booking.service = scan.service; changedD.push('service'); }
-        if (booking.dateISO !== snap.dateISO) changedD.push('date');
-        if (booking.timeMin !== snap.timeMin) changedD.push('time');
-        if (scan.note) { booking.note = scan.note; changedD.push('note'); }
-        if (changedD.length) {
+
+      /* A daypart change is on hold for a clock time (triage E):
+       * the date moved, but nothing has been sent to the clinic. */
+      if (booking.pendingDaypart) {
+        var pd = booking.pendingDaypart;
+        if (/\bkeep\b[^.!?]*\bsame time\b/i.test(text) || /^\s*same( time)?[.!]?\s*$/i.test(text)) {
+          var finKeep = pd.changed.concat(applyStagedExtras(pd.extra));
+          booking.pendingDaypart = null;
           booking.transcript.push(text);
-          submitBookingUpdate('BOOKING CHANGE', 'The visitor asked to change their booking (' + changedD.join(', ') + ').');
-          return 'Updated — I\'ve sent the change to ' + cfg.clinicName + ': ' + oneLineSummary() + ' (reference ' + booking.ref + '). They\'ll confirm the change by phone or text shortly.';
+          submitBookingUpdate('BOOKING CHANGE', 'The visitor asked to change their booking (' + deltaFields(finKeep) + ').');
+          return updatedChangeReply(finKeep);
+        }
+        if (scan.time && scan.time.error) {
+          return 'That time doesn\'t look right — could you give me a time like 10am or 2:30pm? Or say "keep the same time" to stay at ' + pd.prevTimeText + '.';
+        }
+        if (scan.time) {
+          var rejT = applyDateTime({ time: scan.time });
+          if (rejT) {
+            booking.dateISO = pd.prevDateISO; booking.dateText = pd.prevDateText;
+            booking.timeMin = pd.prevTimeMin; booking.timeText = pd.prevTimeText;
+            booking.pendingDaypart = null;
+            return 'Your booking (' + booking.ref + ') is unchanged. ' + rejT;
+          }
+          var finTime = pd.changed.concat([{ field: 'Time', from: pd.prevTimeText || '—', to: booking.timeText }]).concat(applyStagedExtras(pd.extra));
+          booking.pendingDaypart = null;
+          booking.transcript.push(text);
+          submitBookingUpdate('BOOKING CHANGE', 'The visitor asked to change their booking (' + deltaFields(finTime) + ').');
+          return updatedChangeReply(finTime);
+        }
+        if (question) return null; // answer the question; the hold stays open
+        return 'Just need a time for ' + booking.dateText + ' ' + pd.daypart + ' — what time works for you? Or say "keep the same time" (' + pd.prevTimeText + ').';
+      }
+
+      /* A staged change is waiting for a yes/no (triage B). */
+      if (booking.pendingChange) {
+        var staged = booking.pendingChange;
+        if (isYesAnswer(text)) {
+          booking.pendingChange = null;
+          if (staged.daypart && !staged.time && staged.date) return startDaypartHold(staged, text);
+          var resP = applyScannedChange(staged);
+          if (resP.rejection) return 'Your booking (' + booking.ref + ') is unchanged. ' + resP.rejection;
+          if (!resP.changed.length) return 'Your booking is already set that way — nothing to change. ' + oneLineSummary() + ' (reference ' + booking.ref + ').';
+          booking.transcript.push(text);
+          submitBookingUpdate('BOOKING CHANGE', 'The visitor asked to change their booking (' + resP.fields.join(', ') + ').');
+          return updatedChangeReply(resP.changed);
+        }
+        if (isNoAnswer(text)) {
+          booking.pendingChange = null;
+          return 'No problem — your booking stays as it is: ' + oneLineSummary() + ' (reference ' + booking.ref + ').';
+        }
+        if (question) {
+          booking.pendingChange = null; // discard the staged change; the question falls through below
+        } else if (scan.any) {
+          booking.pendingChange = scan; // a fresh field mention re-stages
+          return 'Would you like me to change your booking to ' + stagedText(scan) + '? Reply yes to apply it, or no to keep your booking as it is.';
+        } else {
+          return 'Just reply yes to apply that change, or no to keep your booking as it is: ' + oneLineSummary() + ' (reference ' + booking.ref + ').';
         }
       }
+
+      /* Question shield (triage A): a question with no explicit
+       * change language NEVER mutates a confirmed booking — it
+       * falls through to the FAQ brain / AI like any other message. */
+      if (question && !changeLang) { booking.awaitingChange = false; return null; }
+
+      if (scan.any) {
+        if (!changeLang && !booking.awaitingChange) {
+          /* Bare field mention: stage it and ask first (triage B). */
+          if (!previewDelta(scan).length && !(scan.daypart && scan.date)) return null;
+          booking.pendingChange = scan;
+          return 'Would you like me to change your booking to ' + stagedText(scan) + '? Reply yes to apply it, or no to keep your booking as it is.';
+        }
+        booking.awaitingChange = false;
+        if (scan.daypart && !scan.time && scan.date) return startDaypartHold(scan, text);
+        var resD = applyScannedChange(scan);
+        if (resD.rejection) return 'Your booking (' + booking.ref + ') is unchanged. ' + resD.rejection;
+        if (resD.changed.length) {
+          booking.transcript.push(text);
+          submitBookingUpdate('BOOKING CHANGE', 'The visitor asked to change their booking (' + resD.fields.join(', ') + ').');
+          return updatedChangeReply(resD.changed);
+        }
+        return null;
+      }
       if (/\b(change|move|reschedule)\b/.test(t) && /\b(appointment|booking|visit)\b/.test(t)) {
+        booking.awaitingChange = true;
         return 'Of course — what would you like to change? You can tell me a new day, time, service, or phone number, and I\'ll send the update to the clinic.';
       }
       return null;
@@ -661,17 +894,36 @@
 
     /* Awaiting confirmation: corrections re-show the summary, "confirm" submits. */
     if (booking.state === 'confirm') {
+      /* Question shield (triage A): a question NEVER mutates the
+       * pending booking — answer it and say the booking is unchanged.
+       * It takes priority over the scan-apply below. (An explicit
+       * change verb still counts as a change request.) */
+      if (isQuestion(text) && !/\b(change|move|reschedule|switch|update)\b/.test(t)) {
+        var faqQ = matchAnswer(text);
+        return (faqQ ? faqQ.text + '\n' : '') + '(Your booking is unchanged — reply "confirm" to send it as shown, or tell me what to change.)';
+      }
       if (scan.any) {
+        var deltaC = previewDelta(scan);
         var rejC = applyDateTime(scan);
         if (rejC) return rejC + ' Your details are unchanged — reply "confirm" to send them as they are, or tell me a different day or time.';
-        var anyField = scan.name || scan.phone || scan.service || scan.date || scan.time;
         if (scan.name) booking.name = scan.name;
         if (scan.phone) booking.phone = scan.phone;
         if (scan.service) booking.service = scan.service;
         if (scan.note) booking.note = scan.note;
-        if (anyField) return 'Updated:\n' + summaryText() + '\nReply "confirm" to send this to the clinic, or tell me what else to change.';
+        /* Daypart with no clock time (triage E): the date moved, but
+         * the old time is NOT silently kept — clear it and ask. */
+        if (scan.daypart && !scan.time && scan.date) {
+          booking.timeMin = null;
+          booking.timeText = '';
+          booking.daypartNote = scan.daypart;
+          return 'Updated:\n' + (deltaC.length ? deltaText(deltaC) + '\n' : '') + summaryText() +
+            '\nWhat time on ' + DAY_NAMES[dateFromISO(booking.dateISO).getDay()] + ' ' + scan.daypart + ' works for you?';
+        }
+        var anyField = scan.name || scan.phone || scan.service || scan.date || scan.time;
+        if (anyField) return 'Updated:\n' + (deltaC.length ? deltaText(deltaC) + '\n' : '') + summaryText() + '\nReply "confirm" to send this to the clinic, or tell me what else to change.';
       }
       if (/^(confirm|confirmed|yes|yeah|yep|yup|sure|ok|okay|book it|looks good|that'?s right|correct|please do|go ahead)\b/i.test(t)) {
+        if (!isComplete()) return 'I still need a time for that day first. ' + (nextQuestion() || '');
         booking.transcript.push(text);
         return submitBooking();
       }
@@ -739,6 +991,19 @@
       return 'I don\'t have a booking started in this chat yet — let\'s set up the new one. ' + (nextQuestion() || '');
     }
 
+    /* Question shield (triage A/C): a question never overwrites a
+     * field that is already set, and a service keyword inside a
+     * question is never captured as the booking service. Fields that
+     * are still empty may be captured from a statement part of the
+     * same message (a mixed FAQ + booking message). */
+    if (isQuestion(text) && !hasChangeLang(t, scan)) {
+      if (booking.name) scan.name = undefined;
+      if (booking.phone) scan.phone = undefined;
+      if (booking.dateISO) scan.date = undefined;
+      if (booking.timeMin !== null) scan.time = undefined;
+      if (!wantsBooking && !wantsCallback) scan.service = undefined;
+    }
+
     /* Validate + commit date/time first (rejections keep other fields). */
     var rej = applyDateTime(scan);
     if (rej) {
@@ -756,6 +1021,11 @@
     if (scan.date) captured.push('date');
     if (scan.time) captured.push('time');
 
+    /* Daypart with no clock time (triage E): remember the part of
+     * day; the time itself stays open and the next question asks
+     * for it by name (see askFor). A clock time clears the note. */
+    if (scan.daypart && !scan.time) booking.daypartNote = scan.daypart;
+
     /* Bare answer to a question we asked ("Jane" after "What is your name?"). */
     if (!scan.any && wasCollecting && booking.lastAsked === 'name' && text.length <= 40 && !/[?]/.test(text)) {
       var bn = cleanName(text.replace(/^(my name is|i'm|i am|this is)\s+/i, ''));
@@ -771,10 +1041,12 @@
     if (booking.mode === 'callback' && (booking.dateISO || booking.timeMin !== null || booking.service)) booking.mode = 'booking';
 
     /* A mixed message (FAQ question + booking details): answer the
-     * question AND keep the booking moving. */
+     * question(s) AND keep the booking moving. matchAnswer returns
+     * up to 3 intent answers for a multi-part message (triage F);
+     * a clearly interrogative clause counts even without a '?'. */
     var faqPrefix = '';
     var faqM = matchAnswer(text, true);
-    if (faqM && /\?/.test(text)) faqPrefix = faqM.text;
+    if (faqM && (/\?/.test(text) || /^(what|when|where|how|do|does|is|are|can|will|who)\b/i.test(text.trim()))) faqPrefix = faqM.text;
     var intro = wasCollecting ? '' : (booking.mode === 'callback' ? 'Happy to arrange that.' : 'I can book that for you.');
     var pr = progressReply(captured.length ? 'Got it.' : intro);
     return faqPrefix ? faqPrefix + '\n' + pr : pr;
